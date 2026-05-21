@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ThumbsUp, ThumbsDown, Minus } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, Minus, RefreshCw } from 'lucide-react';
 
 export default function Dashboard() {
   const [mensajes, setMensajes] = useState([]);
@@ -50,8 +50,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchMensajes();
-    const interval = setInterval(fetchMensajes, 5000);
-    return () => clearInterval(interval);
   }, []);
 
   const renderSentimientoIcon = (sentimiento) => {
@@ -117,7 +115,16 @@ export default function Dashboard() {
         </div>
       </div>
       
-      <div className="filtros-wrapper">
+      <div className="filtros-wrapper" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
+        <button 
+          onClick={fetchMensajes} 
+          disabled={loading}
+          className="refresh-btn hover-elevate"
+          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.2rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: '600', transition: 'all 0.2s' }}
+        >
+          <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+          {loading ? 'Actualizando...' : 'Actualizar Datos'}
+        </button>
         <div className="filtros-container">
           <button 
             className={`filtro-btn ${filtro === 'TODOS' ? 'active' : ''}`}
