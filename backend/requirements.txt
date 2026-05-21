@@ -3,3 +3,5 @@ uvicorn
 sqlalchemy
 psycopg2-binary
 requests
+huggingface_hub
+python-dotenv
