@@ -45,12 +45,9 @@ La arquitectura del sistema se rige por los conceptos formales evaluados en la c
 
 ---
 
-## 📂Estructura del Repositorio
+## 📂 Estructura del Repositorio
 
 El proyecto adopta una estructura de monorepo organizada de la siguiente manera:
-
-Salida de código
-README.md generado con éxito.
 
 ```text
 analisis-funcional-en-vivo/
@@ -73,56 +70,72 @@ analisis-funcional-en-vivo/
 └── .gitignore              # Archivos excluidos del control de versiones (venv, .env)
 ```
 
+---
+
 ## 🔧 Instalación y Configuración Local
-Requisitos Previos
-Python 3.10 o superior instalado.
 
-Node.js (versión LTS recomendada) e npm instalados.
+### Requisitos Previos
+* **Python 3.10** o superior instalado.
+* **Node.js** (versión LTS recomendada) e **npm** instalados.
+* Una cuenta o instancia activa de **PostgreSQL** (ej. Neon.tech).
 
-Una cuenta o instancia activa de PostgreSQL (ej. Neon.tech).
+### 1. Clonar el repositorio
 
-1. Clonar el repositorio
-Bash
-git clone [https://github.com/tu-usuario/analisis-funcional-en-vivo.git](https://github.com/tu-usuario/analisis-funcional-en-vivo.git)
+```bash
+git clone https://github.com/tu-usuario/analisis-funcional-en-vivo.git
 cd analisis-funcional-en-vivo
-2. Configuración del Backend
+```
+
+### 2. Configuración del Backend
+
 Navega a la carpeta del servidor y crea un entorno virtual:
 
-Bash
+```bash
 cd backend
 python -m venv venv
+```
+
 Activa el entorno virtual:
-
-En Windows (PowerShell): .\\venv\\Scripts\\activate
-
-En Linux/Mac: source venv/bin/activate
+* En Windows (PowerShell): `.\venv\Scripts\activate`
+* En Linux/Mac: `source venv/bin/activate`
 
 Instala las dependencias:
 
-Bash
+```bash
 pip install -r requirements.txt
-Crea un archivo .env dentro de la carpeta backend/ y añade tu cadena de conexión a la base de datos:
+```
 
-Plaintext
+Crea un archivo `.env` dentro de la carpeta `backend/` y añade tu cadena de conexión a la base de datos:
+
+```plaintext
 SQLALCHEMY_DATABASE_URL=postgresql://usuario:password@host/dbname?sslmode=require
+```
+
 Inicia el servidor de desarrollo:
 
-Bash
+```bash
 uvicorn main:app --reload
-El backend estará disponible en http://127.0.0.1:8000 y la documentación interactiva en http://127.0.0.1:8000/docs.
+```
+*El backend estará disponible en `http://127.0.0.1:8000` y la documentación interactiva en `http://127.0.0.1:8000/docs`.*
 
-3. Configuración del Frontend
+### 3. Configuración del Frontend
+
 Abre una nueva terminal, navega a la carpeta del cliente e instala los módulos de Node:
 
-Bash
+```bash
 cd frontend
 npm install
+```
+
 Inicia el servidor local de Vite:
 
-Bash
+```bash
 npm run dev
-La aplicación web estará disponible en http://localhost:5173.
+```
+*La aplicación web estará disponible en `http://localhost:5173`.*
 
-📝 Declaración Académica
+---
+
+## Declaración Académica
+
 Este desarrollo ha sido estructurado respetando las directrices de integridad, inmutabilidad y control de efectos secundarios promovidas por la cátedra de Paradigmas y Lenguajes de Programación.
-"""

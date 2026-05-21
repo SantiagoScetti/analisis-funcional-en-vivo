@@ -9,7 +9,7 @@ export default function FormularioMensaje() {
 
   const fetchMensajes = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/mensajes');
+      const res = await fetch('https://analisis-funcional-en-vivo.onrender.com/api/mensajes');
       if (res.ok) {
         const data = await res.json();
         // Filtramos para asegurar que haya texto
@@ -39,7 +39,7 @@ export default function FormularioMensaje() {
 
     setEstado('loading');
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/mensajes', {
+      const res = await fetch('https://analisis-funcional-en-vivo.onrender.com/api/mensajes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ texto_original: mensaje }),

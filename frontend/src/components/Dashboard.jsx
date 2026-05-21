@@ -19,7 +19,7 @@ export default function Dashboard() {
 
   const fetchMensajes = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/mensajes');
+      const res = await fetch('https://analisis-funcional-en-vivo.onrender.com/api/mensajes');
       if (!res.ok) throw new Error('Error al obtener mensajes');
       const data = await res.json();
       
