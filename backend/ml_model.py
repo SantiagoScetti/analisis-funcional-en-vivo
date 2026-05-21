@@ -1,27 +1,41 @@
-from transformers import pipeline
-
-# Inicializamos el pipeline de clasificación de texto.
-# Este modelo de HuggingFace se descargará la primera vez que se ejecute el servidor.
-print("Cargando modelo de ML (pysentimiento/robertuito-sentiment-analysis)...")
-sentiment_pipeline = pipeline(
-    "text-classification",
-    model="pysentimiento/robertuito-sentiment-analysis"
-)
-print("Modelo cargado exitosamente.")
+import os
+import requests
 
 def clasificar_sentimiento(texto: str) -> str:
     """
-    Recibe un texto limpio y devuelve la etiqueta de sentimiento predicha.
-    Retorna 'POS' (Positivo), 'NEG' (Negativo) o 'NEU' (Neutro).
+    Recibe un texto limpio y devuelve la etiqueta de sentimiento predicha
+    utilizando la API de inferencia de Hugging Face.
+    Retorna 'POS', 'NEG' o 'NEU'.
     """
-    # Si el texto está vacío tras la limpieza (ej: el usuario solo mandó emojis),
-    # retornamos NEU por defecto para no romper el modelo.
     if not texto.strip():
         return "NEU"
-        
-    # El pipeline retorna una lista con un diccionario
-    # Ejemplo: [{'label': 'POS', 'score': 0.99}]
-    resultado = sentiment_pipeline(texto)
-    etiqueta = resultado[0]['label']
+
+    api_url = "https://api-inference.huggingface.co/models/pysentimiento/robertuito-sentiment-analysis"
+    hf_token = os.getenv("HF_TOKEN")
     
-    return etiqueta
+    headers = {}
+    if hf_token:
+        headers["Authorization"] = f"Bearer {hf_token}"
+        
+    payload = {"inputs": texto}
+
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=10)
+        response.raise_for_status()
+        
+        resultado = response.json()
+        
+        # El formato de respuesta puede variar según el modelo (lista de listas o lista simple)
+        if isinstance(resultado, list) and len(resultado) > 0:
+            # Formato [[{'label': 'POS', 'score': 0.99}, ...]]
+            if isinstance(resultado[0], list) and len(resultado[0]) > 0:
+                return resultado[0][0]['label']
+            # Formato [{'label': 'POS', 'score': 0.99}, ...]
+            elif isinstance(resultado[0], dict) and 'label' in resultado[0]:
+                return resultado[0]['label']
+        
+        return "NEU"
+        
+    except Exception as e:
+        print(f"Error llamando a la API de Hugging Face: {e}")
+        return "NEU"
