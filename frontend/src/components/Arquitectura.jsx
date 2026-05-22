@@ -29,7 +29,7 @@ export default function Arquitectura() {
         <div className="arq-stack-row">
           <span className="arq-badge arq-badge--react">⚛️ React</span>
           <span className="arq-badge arq-badge--fastapi">⚡ FastAPI</span>
-          <span className="arq-badge arq-badge--ml">🤖 Robertuito ML</span>
+          <span className="arq-badge arq-badge--ml">🤖 DistilBERT ML</span>
           <span className="arq-badge arq-badge--db">🗄️ Neon.tech + PostgreSQL</span>
         </div>
 
@@ -294,32 +294,68 @@ def procesar_texto_funcional(texto: str) -> str:
         <p>
           Una vez producido el <code>texto_limpio</code>, este se envía al modelo de{' '}
           <strong>análisis de sentimiento</strong> pre-entrenado{' '}
-          <code>robertuito-sentiment-analysis</code>, disponible en HuggingFace.
-          Este modelo está basado en la arquitectura <strong>RoBERTa</strong>, específicamente
-          ajustado (<em>fine-tuned</em>) para clasificar texto en español según su polaridad
-          sentimental.
+          <code>distilbert-base-multilingual-cased-sentiments-student</code>, disponible en HuggingFace.
+          Este modelo está basado en la arquitectura <strong>DistilBERT</strong> y es{' '}
+          <strong>multilingüe</strong>, lo que le permite clasificar texto en múltiples idiomas
+          —incluido el español— según su polaridad sentimental. La inferencia se realiza de forma
+          remota a través de la <strong>HuggingFace Inference API</strong> mediante solicitudes
+          HTTP, sin necesidad de cargar el modelo localmente.
+        </p>
+        <p>
+          <strong>Decisión de ingeniería:</strong> el modelo original
+          (<code>robertuito-sentiment-analysis</code>) no era compatible con el endpoint serverless
+          del nuevo router de HuggingFace (<code>router.huggingface.co</code>). Para garantizar la
+          disponibilidad continua del servicio, se seleccionó un modelo multilingüe compatible
+          (<code>distilbert-base-multilingual-cased-sentiments-student</code>) que soporta la
+          inferencia vía API sin restricciones de infraestructura.
         </p>
 
-        <pre className="arq-code"><code>{`from transformers import pipeline
+        <pre className="arq-code"><code>{`import os
+import time
+import requests
+from pathlib import Path
+from dotenv import load_dotenv
 
-# Inicializamos el pipeline de clasificación de texto.
-# Este modelo se descargará la primera vez que se ejecute el servidor.
-print("Cargando modelo de ML (pysentimiento/robertuito-sentiment-analysis)...")
-sentiment_pipeline = pipeline(
-    "text-classification",
-    model="pysentimiento/robertuito-sentiment-analysis"
-)
-print("Modelo cargado exitosamente.")
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=BASE_DIR / ".env")
+
+HF_TOKEN = os.getenv("HF_TOKEN")
+API_URL = "https://router.huggingface.co/hf-inference/models/lxyuan/distilbert-base-multilingual-cased-sentiments-student"
+
+MAPA_ETIQUETAS = {
+    "positive": "POS",
+    "negative": "NEG",
+    "neutral":  "NEU",
+}
 
 def clasificar_sentimiento(texto: str) -> str:
-    """Recibe un texto limpio y devuelve la etiqueta de sentimiento predicha.
-    Retorna 'POS' (Positivo), 'NEG' (Negativo) o 'NEU' (Neutro)."""
-    if not texto.strip():
+    if not HF_TOKEN:
+        print("❌ HF_TOKEN ausente")
         return "NEU"
 
-    resultado = sentiment_pipeline(texto)
-    etiqueta = resultado[0]['label']
-    return etiqueta`}</code></pre>
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    payload = {"inputs": texto}
+
+    for intento in range(3):
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=25)
+
+            if response.status_code == 503:
+                time.sleep(15)
+                continue
+
+            response.raise_for_status()
+            resultado = response.json()
+
+            candidatos = resultado[0] if isinstance(resultado[0], list) else resultado
+            top = max(candidatos, key=lambda x: x["score"])
+            etiqueta = MAPA_ETIQUETAS.get(top["label"].lower(), "NEU")
+            return etiqueta
+
+        except Exception as e:
+            print(f"Error intento {intento + 1}: {e}")
+
+    return "NEU"`}</code></pre>
 
         <h3>3.2. Taxonomía de la Clasificación</h3>
         <div className="arq-table-wrapper">
@@ -351,6 +387,38 @@ def clasificar_sentimiento(texto: str) -> str:
           </table>
         </div>
 
+        <h3>3.2b. Mapeo de Etiquetas (<code>MAPA_ETIQUETAS</code>)</h3>
+        <p>
+          El modelo DistilBERT retorna etiquetas en inglés (<code>positive</code>,{' '}
+          <code>negative</code>, <code>neutral</code>). El diccionario{' '}
+          <code>MAPA_ETIQUETAS</code> traduce estas etiquetas a la nomenclatura interna
+          del sistema:
+        </p>
+        <div className="arq-table-wrapper">
+          <table className="arq-table">
+            <thead>
+              <tr>
+                <th>Etiqueta del Modelo</th>
+                <th>Etiqueta Interna</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>positive</code></td>
+                <td><code className="arq-label arq-label--pos">POS</code></td>
+              </tr>
+              <tr>
+                <td><code>negative</code></td>
+                <td><code className="arq-label arq-label--neg">NEG</code></td>
+              </tr>
+              <tr>
+                <td><code>neutral</code></td>
+                <td><code className="arq-label arq-label--neu">NEU</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
         <h3>3.3. Vínculo Funcional: Determinismo y Transparencia Referencial</h3>
         <p>
           Desde la perspectiva funcional, la inferencia del modelo se comporta como una{' '}
@@ -360,8 +428,10 @@ def clasificar_sentimiento(texto: str) -> str:
         <p>
           Este comportamiento satisface el principio de <strong>transparencia referencial</strong>
           {' '}(<em>referential transparency</em>): la invocación{' '}
-          <code>clasificar_sentimiento("me encanta esta app")</code> puede ser sustituida
-          por su resultado <code>"POS"</code> en cualquier punto del programa sin alterar el
+          <code>clasificar_sentimiento("me encanta esta app")</code> envía una solicitud HTTP
+          a la API de HuggingFace, recibe la etiqueta <code>positive</code> y la traduce
+          mediante <code>MAPA_ETIQUETAS</code> a <code>"POS"</code>. Esta expresión puede ser
+          sustituida por su resultado en cualquier punto del programa sin alterar el
           comportamiento del sistema.
         </p>
 
