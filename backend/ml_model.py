@@ -18,7 +18,7 @@ MAPA_ETIQUETAS = {
 
 def clasificar_sentimiento(texto: str) -> str:
     if not HF_TOKEN:
-        print("❌ HF_TOKEN ausente")
+        print("HF_TOKEN ausente")
         return "NEU"
 
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
@@ -26,9 +26,9 @@ def clasificar_sentimiento(texto: str) -> str:
 
     for intento in range(3):
         try:
-            print(f"🤖 Intento {intento + 1} — consultando HF para: '{texto}'")
+            print(f"Intento {intento + 1} — consultando HF para: '{texto}'")
             response = requests.post(API_URL, headers=headers, json=payload, timeout=25)
-            print(f"📡 Status: {response.status_code} | Body: {response.text[:200]}")
+            print(f"Status: {response.status_code} | Body: {response.text[:200]}")
 
             if response.status_code == 503:
                 print("⏳ Modelo cargando, esperando 15 segundos...")
@@ -41,11 +41,11 @@ def clasificar_sentimiento(texto: str) -> str:
             candidatos = resultado[0] if isinstance(resultado[0], list) else resultado
             top = max(candidatos, key=lambda x: x["score"])
             etiqueta = MAPA_ETIQUETAS.get(top["label"].lower(), "NEU")
-            print(f"✅ Resultado: {etiqueta} (label original: {top['label']}, score: {top['score']:.2f})")
+            print(f"Resultado: {etiqueta} (label original: {top['label']}, score: {top['score']:.2f})")
             return etiqueta
 
         except Exception as e:
-            print(f"⚠️ Error intento {intento + 1}: {type(e).__name__}: {e}")
+            print(f"Error intento {intento + 1}: {type(e).__name__}: {e}")
 
-    print("❌ Todos los intentos fallaron, retornando NEU")
+    print("Todos los intentos fallaron, retornando NEU")
     return "NEU"

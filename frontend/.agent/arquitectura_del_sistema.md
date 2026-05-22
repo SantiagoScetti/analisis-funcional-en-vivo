@@ -4,18 +4,18 @@
 
 La presente arquitectura adopta un diseño por capas desacopladas que orbita en torno a un principio rector: **el dato fluye a través de transformaciones puras y predecibles, mientras que los efectos secundarios quedan confinados en los bordes del sistema**. Esta decisión de diseño no es arbitraria; responde a la aplicación deliberada de los fundamentos del **Paradigma Funcional** en un contexto de ingeniería de software moderna.
 
-El sistema se compone de un **frontend** construido con React, un **backend** implementado en FastAPI (Python), un **modelo de Machine Learning** pre-entrenado (`robertuito-sentiment-analysis`) alojado en HuggingFace, y una **base de datos relacional** PostgreSQL gestionada por el servicio Neon.tech a través del ORM SQLAlchemy.
+El sistema se compone de un **frontend** construido con React, un **backend** implementado en FastAPI (Python), un **modelo de Machine Learning** pre-entrenado (`distilbert-base-multilingual-cased-sentiments-student`) consumido a través de la **HuggingFace Inference API**, y una **base de datos relacional** PostgreSQL gestionada por el servicio Neon.tech a través del ORM SQLAlchemy.
 
 A continuación, se describe de forma exhaustiva el **ciclo de vida del dato** —desde la captura del mensaje del usuario hasta su proyección visual en el dashboard—, vinculando cada etapa con los conceptos fundamentales del paradigma funcional.
 
 ```mermaid
 flowchart LR
     A["👤 Usuario"] -->|Escribe mensaje| B["⚛️ React Frontend"]
-    B -->|POST /analizar| C["⚡ FastAPI Backend"]
+    B -->|POST /api/mensajes| C["⚡ FastAPI Backend"]
     C -->|Pipeline Funcional| D["🧹 Texto Limpio"]
-    D -->|Inferencia| E["🤖 Robertuito ML"]
+    D -->|Inferencia| E["🤖 DistilBERT ML"]
     E -->|Sentimiento| F["🗄️ Neon.tech PostgreSQL"]
-    F -->|GET /historial| B
+    F -->|GET /api/mensajes| B
     B -->|.map / .filter| G["📊 Dashboard"]
 
     style B fill:#61DAFB,color:#000
@@ -36,25 +36,26 @@ El ciclo de vida del dato se inicia en la **interfaz de usuario**, construida co
 Cuando el usuario escribe un mensaje y presiona el botón de enviar, React captura el valor del campo de texto a través de su mecanismo de **estado local** (`useState`). Este estado es una variable reactiva encapsulada dentro del componente; su modificación desencadena un nuevo ciclo de renderizado, lo cual garantiza que la interfaz siempre refleje el valor más reciente del dato.
 
 ```jsx
-const [mensaje, setMensaje] = useState("");
+const [mensaje, setMensaje] = useState('');
 
 const handleSubmit = async (e) => {
   e.preventDefault();
-  const payload = { texto_original: mensaje };
+  if (!mensaje.trim()) return;
 
-  await fetch("http://localhost:8000/analizar", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+  const res = await fetch('http://127.0.0.1:8000/api/mensajes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texto_original: mensaje }),
   });
 
-  setMensaje(""); // Resetea el estado local tras el envío
+  if (!res.ok) throw new Error('Error al enviar mensaje');
+  setMensaje(''); // Resetea el estado local tras el envío
 };
 ```
 
 ### 1.2. Construcción y Emisión del Payload
 
-El valor capturado se encapsula en un objeto JSON con la estructura `{ "texto_original": "..." }` y se transmite mediante una solicitud **HTTP POST** hacia el endpoint `/analizar` del backend. Este objeto JSON constituye el **payload** de la petición, es decir, la carga útil de datos que viaja desde el cliente hacia el servidor.
+El valor capturado se encapsula en un objeto JSON con la estructura `{ "texto_original": "..." }` y se transmite mediante una solicitud **HTTP POST** hacia el endpoint `/api/mensajes` del backend. Este objeto JSON constituye el **payload** de la petición, es decir, la carga útil de datos que viaja desde el cliente hacia el servidor.
 
 ### 1.3. Vínculo con el Paradigma Funcional: Flujo de Datos Unidireccional
 
@@ -73,7 +74,7 @@ flowchart TD
         Vista -->|Acción del usuario| Handler["handleSubmit()"]
         Handler -->|setMensaje / fetch| Estado
     end
-    Handler -->|POST JSON| API["FastAPI /analizar"]
+    Handler -->|POST JSON| API["FastAPI /api/mensajes"]
 
     style React fill:#1a1a2e,color:#e0e0e0,stroke:#61DAFB
     style API fill:#009688,color:#fff
@@ -85,13 +86,24 @@ flowchart TD
 
 ### 2.1. Recepción del Dato en FastAPI
 
-El backend, implementado con el framework **FastAPI** de Python, recibe la solicitud POST en su endpoint `/analizar`. FastAPI deserializa automáticamente el cuerpo JSON de la petición y lo valida contra un esquema definido mediante **Pydantic**, una biblioteca de validación de datos basada en anotaciones de tipo:
+El backend, implementado con el framework **FastAPI** de Python, recibe la solicitud POST en su endpoint `/api/mensajes`. FastAPI deserializa automáticamente el cuerpo JSON de la petición y lo valida contra un esquema definido mediante **Pydantic**, una biblioteca de validación de datos basada en anotaciones de tipo:
 
 ```python
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from typing import Optional
+from datetime import datetime
 
-class MensajeInput(BaseModel):
+class MensajeCreate(BaseModel):
     texto_original: str
+
+class MensajeOut(BaseModel):
+    id: int
+    texto_original: str
+    texto_limpio: Optional[str]
+    sentimiento: Optional[str]
+    fecha_creacion: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 ```
 
 En este punto, el sistema dispone del `texto_original` —la cadena de texto cruda tal como la escribió el usuario— y comienza la fase de **transformación funcional**.
@@ -108,30 +120,17 @@ Una **función pura** es aquella que cumple con dos propiedades fundamentales:
 Cada función de limpieza recibe una cadena de texto como argumento y retorna una **nueva cadena de texto** transformada, sin modificar la cadena original:
 
 ```python
-def to_lowercase(texto: str) -> str:
-    """Convierte todos los caracteres a minúsculas."""
-    return texto.lower()
+def to_lowercase(text: str) -> str:
+    """Convierte el texto a minúsculas."""
+    return text.lower()
 
-def remove_special_chars(texto: str) -> str:
-    """Elimina caracteres especiales, conservando letras, números y espacios."""
-    return re.sub(r'[^a-záéíóúüñ0-9\s]', '', texto)
+def remove_special_chars(text: str) -> str:
+    """Mantiene solo letras, números y espacios."""
+    return re.sub(r'[^\w\s]', '', text)
 
-def remove_extra_spaces(texto: str) -> str:
-    """Reduce múltiples espacios consecutivos a un único espacio."""
-    return re.sub(r'\s+', ' ', texto).strip()
-
-def remove_urls(texto: str) -> str:
-    """Elimina URLs del texto."""
-    return re.sub(r'http\S+|www\.\S+', '', texto)
-
-def remove_emojis(texto: str) -> str:
-    """Elimina caracteres emoji del texto."""
-    patron_emojis = re.compile(
-        "[" "\U0001F600-\U0001F64F" "\U0001F300-\U0001F5FF"
-        "\U0001F680-\U0001F6FF" "\U0001F1E0-\U0001F1FF" "]+",
-        flags=re.UNICODE
-    )
-    return patron_emojis.sub('', texto)
+def strip_whitespaces(text: str) -> str:
+    """Elimina espacios extra."""
+    return " ".join(text.split())
 ```
 
 > [!NOTE]
@@ -141,59 +140,51 @@ def remove_emojis(texto: str) -> str:
 
 Las funciones puras definidas en la sección anterior deben ejecutarse **en secuencia**, donde la salida de una función se convierte en la entrada de la siguiente. Este patrón se denomina **composición de funciones** y es uno de los pilares del paradigma funcional.
 
-Para orquestar esta composición, el sistema emplea la función `reduce` del módulo `functools` de Python. `reduce` es una **función de orden superior** (*higher-order function*), lo cual significa que recibe **otras funciones como argumento**.
+Para orquestar esta composición, el sistema define una función auxiliar `compose` que utiliza internamente `reduce` del módulo `functools` de Python. `reduce` es una **función de orden superior** (*higher-order function*), lo cual significa que recibe **otras funciones como argumento**.
 
 ```python
 from functools import reduce
+from typing import Callable
 
-# Lista ordenada de transformaciones puras
-pipeline_limpieza = [
-    remove_urls,
-    remove_emojis,
+def compose(*functions: Callable[[str], str]) -> Callable[[str], str]:
+    """Toma múltiples funciones puras y retorna una nueva función
+    que es la composición de todas ellas (de izquierda a derecha).
+    No usa bucles for ni variables mutables."""
+    return reduce(lambda f, g: lambda x: g(f(x)), functions)
+
+# Definimos el pipeline inmutable
+pipeline_limpieza = compose(
     to_lowercase,
     remove_special_chars,
-    remove_extra_spaces,
-]
+    strip_whitespaces
+)
 
-def limpiar_texto(texto_original: str) -> str:
-    """
-    Aplica secuencialmente todas las funciones de limpieza
-    mediante composición funcional orquestada por reduce.
-    """
-    texto_limpio = reduce(
-        lambda texto_acumulado, funcion: funcion(texto_acumulado),
-        pipeline_limpieza,
-        texto_original  # Valor inicial del acumulador
-    )
-    return texto_limpio
+def procesar_texto_funcional(texto: str) -> str:
+    """Punto de entrada para el procesamiento.
+    Aplica el pipeline funcional al texto entrante."""
+    return pipeline_limpieza(texto)
 ```
 
-La mecánica interna de `reduce` en este contexto opera de la siguiente manera:
+La mecánica interna de `compose` (que utiliza `reduce`) en este contexto opera de la siguiente manera:
 
 | Iteración | `texto_acumulado` (entrada) | `funcion` aplicada | Resultado (nueva entrada) |
 |:---------:|:---|:---|:---|
-| 1 | `texto_original` | `remove_urls` | Texto sin URLs |
-| 2 | Texto sin URLs | `remove_emojis` | Texto sin URLs ni emojis |
-| 3 | Texto sin URLs ni emojis | `to_lowercase` | Texto en minúsculas |
-| 4 | Texto en minúsculas | `remove_special_chars` | Texto sin caracteres especiales |
-| 5 | Texto sin caracteres especiales | `remove_extra_spaces` | **`texto_limpio` final** |
+| 1 | `texto_original` | `to_lowercase` | Texto en minúsculas |
+| 2 | Texto en minúsculas | `remove_special_chars` | Texto sin caracteres especiales |
+| 3 | Texto sin caracteres especiales | `strip_whitespaces` | **`texto_limpio` final** |
 
 ```mermaid
 flowchart LR
-    Input["texto_original"] --> F1["remove_urls()"]
-    F1 --> F2["remove_emojis()"]
-    F2 --> F3["to_lowercase()"]
-    F3 --> F4["remove_special_chars()"]
-    F4 --> F5["remove_extra_spaces()"]
-    F5 --> Output["texto_limpio"]
+    Input["texto_original"] --> F1["to_lowercase()"]
+    F1 --> F2["remove_special_chars()"]
+    F2 --> F3["strip_whitespaces()"]
+    F3 --> Output["texto_limpio"]
 
     style Input fill:#EF5350,color:#fff
     style Output fill:#66BB6A,color:#fff
     style F1 fill:#42A5F5,color:#fff
     style F2 fill:#42A5F5,color:#fff
     style F3 fill:#42A5F5,color:#fff
-    style F4 fill:#42A5F5,color:#fff
-    style F5 fill:#42A5F5,color:#fff
 ```
 
 ### 2.4. Vínculo con el Paradigma Funcional: Inmutabilidad Absoluta
@@ -215,37 +206,73 @@ Este principio tiene consecuencias prácticas de gran relevancia:
 
 ### 3.1. Ingreso del Texto Limpio al Modelo
 
-Una vez que el pipeline de limpieza produce el `texto_limpio`, este se envía como entrada al modelo de **análisis de sentimiento**. El sistema utiliza el modelo pre-entrenado `robertuito-sentiment-analysis`, disponible en la plataforma HuggingFace. Este modelo está basado en la arquitectura **RoBERTa** (una variante optimizada de BERT), específicamente ajustado (*fine-tuned*) para clasificar texto en español según su polaridad sentimental.
+Una vez que el pipeline de limpieza produce el `texto_limpio`, este se envía como entrada al modelo de **análisis de sentimiento**. El sistema utiliza el modelo pre-entrenado `distilbert-base-multilingual-cased-sentiments-student` de **lxyuan**, disponible en la plataforma HuggingFace. Este modelo está basado en la arquitectura **DistilBERT** —una versión destilada y optimizada de BERT— y es **multilingüe**, lo que le permite clasificar texto en múltiples idiomas (incluido el español) según su polaridad sentimental.
 
-La integración se realiza mediante la biblioteca `transformers` de HuggingFace, que proporciona la abstracción `pipeline` para simplificar la carga del modelo y la ejecución de inferencias:
+La inferencia se realiza de forma **remota** a través de la **HuggingFace Inference API** mediante solicitudes HTTP, sin necesidad de cargar el modelo localmente en el servidor.
+
+> [!IMPORTANT]
+> **Decisión de ingeniería:** el modelo originalmente seleccionado (`pysentimiento/robertuito-sentiment-analysis`) no era compatible con el endpoint serverless del nuevo router de HuggingFace (`router.huggingface.co`). Para garantizar la **disponibilidad continua** del servicio (alta resiliencia), se seleccionó un modelo multilingüe compatible que soporta la inferencia vía API sin restricciones de infraestructura. Esta sustitución preserva la pureza de la arquitectura funcional: el componente externo de ML es **intercambiable** sin modificar la lógica interna del sistema.
 
 ```python
-from transformers import pipeline
+import os
+import time
+import requests
+from pathlib import Path
+from dotenv import load_dotenv
 
-# Carga del modelo pre-entrenado (se ejecuta una sola vez al iniciar el servidor)
-clasificador = pipeline(
-    "sentiment-analysis",
-    model="pysentimiento/robertuito-sentiment-analysis"
-)
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=BASE_DIR / ".env")
 
-def clasificar_sentimiento(texto_limpio: str) -> str:
-    """
-    Recibe el texto limpio y retorna la etiqueta de sentimiento
-    predicha por el modelo ('POS', 'NEG' o 'NEU').
-    """
-    resultado = clasificador(texto_limpio)
-    return resultado[0]["label"]  # e.g., "POS", "NEG", "NEU"
+HF_TOKEN = os.getenv("HF_TOKEN")
+API_URL = "https://router.huggingface.co/hf-inference/models/lxyuan/distilbert-base-multilingual-cased-sentiments-student"
+
+MAPA_ETIQUETAS = {
+    "positive": "POS",
+    "negative": "NEG",
+    "neutral":  "NEU",
+}
+
+def clasificar_sentimiento(texto: str) -> str:
+    if not HF_TOKEN:
+        return "NEU"
+
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    payload = {"inputs": texto}
+
+    for intento in range(3):
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=25)
+
+            if response.status_code == 503:
+                time.sleep(15)
+                continue
+
+            response.raise_for_status()
+            resultado = response.json()
+
+            candidatos = resultado[0] if isinstance(resultado[0], list) else resultado
+            top = max(candidatos, key=lambda x: x["score"])
+            etiqueta = MAPA_ETIQUETAS.get(top["label"].lower(), "NEU")
+            return etiqueta
+
+        except Exception as e:
+            print(f"Error intento {intento + 1}: {e}")
+
+    return "NEU"
 ```
 
 ### 3.2. Taxonomía de la Clasificación
 
-El modelo `robertuito-sentiment-analysis` clasifica cada texto en una de tres categorías discretas:
+El modelo `distilbert-base-multilingual-cased-sentiments-student` retorna etiquetas en inglés (`positive`, `negative`, `neutral`). El diccionario `MAPA_ETIQUETAS` las traduce al estándar interno del sistema:
 
-| Etiqueta | Significado | Ejemplo ilustrativo |
-|:--------:|:------------|:--------------------|
-| `POS` | Sentimiento **positivo** | *"Me encanta esta aplicación, funciona perfecto"* |
-| `NEG` | Sentimiento **negativo** | *"Pésimo servicio, no lo recomiendo"* |
-| `NEU` | Sentimiento **neutro** | *"El horario de atención es de 9 a 18"* |
+| Etiqueta del Modelo | Etiqueta Interna | Significado | Ejemplo ilustrativo |
+|:------------------:|:----------------:|:------------|:--------------------|
+| `positive` | `POS` | Sentimiento **positivo** | *"Me encanta esta aplicación, funciona perfecto"* |
+| `negative` | `NEG` | Sentimiento **negativo** | *"Pésimo servicio, no lo recomiendo"* |
+| `neutral` | `NEU` | Sentimiento **neutro** | *"El horario de atención es de 9 a 18"* |
+
+> [!NOTE]
+> La operación `MAPA_ETIQUETAS.get(top["label"].lower(), "NEU")` es una **función pura**: dado un mismo `label`, siempre retorna la misma etiqueta interna. El valor por defecto `"NEU"` garantiza que etiquetas inesperadas no rompan el flujo del sistema.
 
 ### 3.3. Vínculo con el Paradigma Funcional: Determinismo y Transparencia Referencial
 
@@ -255,7 +282,7 @@ Este comportamiento satisface el principio de **transparencia referencial** (*re
 
 ```mermaid
 flowchart LR
-    TL["texto_limpio"] --> Modelo["🤖 robertuito-sentiment-analysis"]
+    TL["texto_limpio"] --> Modelo["🤖 distilbert-sentiments"]
     Modelo --> Etiqueta["sentimiento: POS | NEG | NEU"]
 
     style TL fill:#66BB6A,color:#fff
@@ -278,46 +305,55 @@ Al finalizar las fases de transformación pura (limpieza) y clasificación deter
 2. `texto_limpio` — el resultado del pipeline de normalización.
 3. `sentimiento` — la etiqueta predicha por el modelo (`POS`, `NEG` o `NEU`).
 
-Con estos tres valores se construye una instancia del modelo ORM `Mensaje`, definido mediante **SQLAlchemy**, que mapea directamente a la tabla `mensaje` de la base de datos PostgreSQL alojada en Neon.tech:
+Con estos tres valores se construye una instancia del modelo ORM `Mensaje`, definido mediante **SQLAlchemy**, que mapea directamente a la tabla `mensajes` de la base de datos PostgreSQL alojada en Neon.tech:
 
 ```python
 from sqlalchemy import Column, Integer, String, DateTime
-from sqlalchemy.sql import func
+from datetime import datetime, timezone
 from database import Base
 
 class Mensaje(Base):
-    __tablename__ = "mensaje"
+    __tablename__ = "mensajes"
 
-    id              = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    texto_original  = Column(String, nullable=False)
-    texto_limpio    = Column(String, nullable=False)
-    sentimiento     = Column(String, nullable=False)
-    fecha_creacion  = Column(DateTime, server_default=func.now())
+    id = Column(Integer, primary_key=True, index=True)
+    texto_original = Column(String, nullable=False)
+    texto_limpio = Column(String, nullable=True)
+    sentimiento = Column(String, nullable=True)
+    fecha_creacion = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 ```
 
 | Columna | Tipo | Descripción |
 |:--------|:-----|:------------|
 | `id` | `Integer` | Clave primaria autoincremental |
 | `texto_original` | `String` | Texto crudo ingresado por el usuario |
-| `texto_limpio` | `String` | Texto resultante del pipeline funcional |
-| `sentimiento` | `String` | Etiqueta de clasificación (`POS`, `NEG`, `NEU`) |
-| `fecha_creacion` | `DateTime` | Marca temporal de inserción (generada por el servidor de BD) |
+| `texto_limpio` | `String (nullable)` | Texto resultante del pipeline funcional |
+| `sentimiento` | `String (nullable)` | Etiqueta de clasificación (`POS`, `NEG`, `NEU`) |
+| `fecha_creacion` | `DateTime` | Marca temporal generada con `datetime.now(timezone.utc)` |
 
 ### 4.2. Ejecución de la Operación de Escritura
 
-La inserción del registro en la base de datos se realiza a través de una sesión de SQLAlchemy:
+La lógica de persistencia se encuentra integrada dentro del endpoint `crear_mensaje()` de FastAPI, que orquesta el pipeline completo y luego realiza la escritura:
 
 ```python
-def guardar_mensaje(db: Session, texto_original: str, texto_limpio: str, sentimiento: str):
-    """
-    Persiste el resultado del análisis en la base de datos.
-    Esta función constituye un EFECTO SECUNDARIO controlado.
-    """
-    nuevo_mensaje = Mensaje(
-        texto_original=texto_original,
-        texto_limpio=texto_limpio,
-        sentimiento=sentimiento,
+@app.post("/api/mensajes", response_model=schemas.MensajeOut)
+def crear_mensaje(mensaje_in: schemas.MensajeCreate,
+                  db: Session = Depends(database.get_db)):
+    """Recibe un mensaje crudo, lo procesa con el pipeline funcional
+    puro, predice el sentimiento con ML y guarda el resultado."""
+    # 1. Pipeline Funcional Puro
+    texto_procesado = procesar_texto_funcional(mensaje_in.texto_original)
+
+    # 2. Predicción con Machine Learning
+    sentimiento_predicho = clasificar_sentimiento(texto_procesado)
+
+    # 3. Creación del objeto de SQLAlchemy
+    nuevo_mensaje = models.Mensaje(
+        texto_original=mensaje_in.texto_original,
+        texto_limpio=texto_procesado,
+        sentimiento=sentimiento_predicho
     )
+
+    # 4. Guardado en Base de Datos (Efecto Secundario controlado)
     db.add(nuevo_mensaje)
     db.commit()
     db.refresh(nuevo_mensaje)
@@ -328,7 +364,7 @@ def guardar_mensaje(db: Session, texto_original: str, texto_limpio: str, sentimi
 
 En el paradigma funcional estricto, un **efecto secundario** (*side effect*) es cualquier operación que interactúa con el mundo exterior al programa: escribir en una base de datos, enviar un correo electrónico, modificar un archivo en disco, o incluso imprimir en consola. Estas operaciones son inherentemente **impuras** porque su resultado no depende exclusivamente de sus parámetros de entrada —dependen del estado de un sistema externo que puede fallar, estar inaccesible o comportarse de forma no determinista.
 
-La operación `guardar_mensaje()` es un efecto secundario: **muta el estado de un sistema externo** (la base de datos PostgreSQL en Neon.tech). Sin embargo, el diseño arquitectónico adoptado minimiza el impacto de esta impureza mediante una estrategia deliberada:
+La operación de persistencia dentro de `crear_mensaje()` es un efecto secundario: **muta el estado de un sistema externo** (la base de datos PostgreSQL en Neon.tech). Sin embargo, el diseño arquitectónico adoptado minimiza el impacto de esta impureza mediante una estrategia deliberada:
 
 > **Las impurezas se empujan hacia los bordes del sistema.**
 
@@ -345,8 +381,8 @@ flowchart TB
 
     subgraph Nucleo ["🟢 Núcleo Puro (Transformaciones Funcionales)"]
         direction LR
-        Pipeline["Pipeline de Limpieza (reduce)"]
-        ML["Clasificación (robertuito)"]
+        Pipeline["Pipeline de Limpieza (compose/reduce)"]
+        ML["Clasificación (DistilBERT)"]
         Pipeline --> ML
     end
 
@@ -371,19 +407,23 @@ Esta arquitectura, frecuentemente denominada **"Functional Core, Imperative Shel
 
 ## Fase 5: Proyecciones Funcionales (Dashboard en Vivo)
 
-### 5.1. Consulta y Obtención del Historial
+### 5.1. Consulta y Obtención de Mensajes
 
-Para la visualización del dashboard, el frontend React realiza una solicitud **HTTP GET** al endpoint `/historial` del backend. FastAPI consulta la tabla `mensaje` a través de SQLAlchemy y retorna la colección completa de registros en formato JSON:
+Para la visualización del dashboard, el frontend React realiza una solicitud **HTTP GET** al endpoint `/api/mensajes` del backend. FastAPI consulta la tabla `mensajes` a través de SQLAlchemy y retorna la colección completa de registros en formato JSON:
 
 ```python
-@app.get("/historial")
-def obtener_historial(db: Session = Depends(get_db)):
-    """Retorna todos los mensajes analizados, ordenados por fecha."""
-    mensajes = db.query(Mensaje).order_by(Mensaje.fecha_creacion.desc()).all()
+@app.get("/api/mensajes", response_model=List[schemas.MensajeOut])
+def obtener_mensajes(db: Session = Depends(database.get_db)):
+    """Endpoint para recuperar todas las opiniones registradas.
+    Aplica los principios funcionales de proyección mapeando
+    la tabla directamente al esquema de salida."""
+    mensajes = db.query(models.Mensaje).order_by(
+        models.Mensaje.fecha_creacion.desc()
+    ).all()
     return mensajes
 ```
 
-El frontend recibe un arreglo de objetos JSON, donde cada objeto representa un registro de la tabla `mensaje`:
+El frontend recibe un arreglo de objetos JSON, donde cada objeto representa un registro de la tabla `mensajes`:
 
 ```json
 [
@@ -511,16 +551,14 @@ flowchart TB
 
     subgraph F2 ["Fase 2: Pipeline (Puro — Funcional)"]
         API_IN --> Recepcion["FastAPI recibe texto_original"]
-        Recepcion --> P1["remove_urls()"]
-        P1 --> P2["remove_emojis()"]
-        P2 --> P3["to_lowercase()"]
-        P3 --> P4["remove_special_chars()"]
-        P4 --> P5["remove_extra_spaces()"]
-        P5 --> TL["texto_limpio ✅"]
+        Recepcion --> P1["to_lowercase()"]
+        P1 --> P2["remove_special_chars()"]
+        P2 --> P3["strip_whitespaces()"]
+        P3 --> TL["texto_limpio ✅"]
     end
 
     subgraph F3 ["Fase 3: Clasificación (Puro — Determinista)"]
-        TL --> ML["🤖 robertuito-sentiment-analysis"]
+        TL --> ML["🤖 distilbert-sentiments"]
         ML --> Sent["sentimiento: POS | NEG | NEU"]
     end
 
@@ -530,7 +568,7 @@ flowchart TB
     end
 
     subgraph F5 ["Fase 5: Proyección (Puro — Funcional)"]
-        DB -->|GET /historial| FE["⚛️ React recibe JSON"]
+        DB -->|GET /api/mensajes| FE["⚛️ React recibe JSON"]
         FE --> Map[".map() → Tarjetas"]
         FE --> Filter[".filter() → Estadísticas"]
         Map --> Dashboard["📊 Dashboard"]
@@ -547,7 +585,7 @@ flowchart TB
 | Fase | Operación | Pureza | Concepto Funcional |
 |:----:|:----------|:------:|:-------------------|
 | 1 | Captura y envío HTTP | 🔴 Impura | Flujo unidireccional de datos |
-| 2 | Pipeline de limpieza | 🟢 Pura | Composición de funciones puras, inmutabilidad, función de orden superior (`reduce`) |
+| 2 | Pipeline de limpieza | 🟢 Pura | Composición de funciones puras, inmutabilidad, función de orden superior (`compose`/`reduce`) |
 | 3 | Inferencia del modelo | 🟢 Pura | Determinismo, transparencia referencial |
 | 4 | Escritura en base de datos | 🔴 Impura | Aislamiento de efectos secundarios (Functional Core, Imperative Shell) |
 | 5 | Renderizado del dashboard | 🟢 Pura | Funciones de orden superior (`.map()`, `.filter()`), generación de nuevas colecciones |

@@ -9,8 +9,6 @@ import schemas
 from pipeline import procesar_texto_funcional
 from ml_model import clasificar_sentimiento
 
-# Nota: Para proyectos en producción se recomienda usar Alembic para migraciones.
-# Por ahora, esto creará las tablas automáticamente basadas en los modelos.
 database.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI(
