@@ -14,7 +14,11 @@ if not SQLALCHEMY_DATABASE_URL:
     raise ValueError("Falta la variable de entorno SQLALCHEMY_DATABASE_URL")
 
 # Creamos el motor de conexión a PostgreSQL con rastreo SQL activado
-engine = create_engine(SQLALCHEMY_DATABASE_URL, echo=True)
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, 
+    echo=True,
+    pool_pre_ping=True  # Arregla desconexiones SSL en Neon
+)
 
 # Configuramos la sesión de base de datos
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
