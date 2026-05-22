@@ -8,7 +8,13 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-API_URL = "https://router.huggingface.co/hf-inference/models/pysentimiento/robertuito-sentiment-analysis"
+API_URL = "https://router.huggingface.co/hf-inference/models/lxyuan/distilbert-base-multilingual-cased-sentiments-student"
+
+MAPA_ETIQUETAS = {
+    "positive": "POS",
+    "negative": "NEG",
+    "neutral":  "NEU",
+}
 
 def clasificar_sentimiento(texto: str) -> str:
     if not HF_TOKEN:
@@ -32,11 +38,11 @@ def clasificar_sentimiento(texto: str) -> str:
             response.raise_for_status()
             resultado = response.json()
 
-            # El modelo devuelve [[{label, score}, ...]] o [{label, score}, ...]
             candidatos = resultado[0] if isinstance(resultado[0], list) else resultado
             top = max(candidatos, key=lambda x: x["score"])
-            print(f"✅ Resultado: {top['label']} ({top['score']:.2f})")
-            return top["label"]
+            etiqueta = MAPA_ETIQUETAS.get(top["label"].lower(), "NEU")
+            print(f"✅ Resultado: {etiqueta} (label original: {top['label']}, score: {top['score']:.2f})")
+            return etiqueta
 
         except Exception as e:
             print(f"⚠️ Error intento {intento + 1}: {type(e).__name__}: {e}")
