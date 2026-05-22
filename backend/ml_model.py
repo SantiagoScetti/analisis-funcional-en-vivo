@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-API_URL = "https://api-inference.huggingface.co/models/pysentimiento/robertuito-sentiment-analysis"
+API_URL = "https://router.huggingface.co/hf-inference/models/pysentimiento/robertuito-sentiment-analysis"
 
 def clasificar_sentimiento(texto: str) -> str:
     if not HF_TOKEN:
